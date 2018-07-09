@@ -14,7 +14,7 @@ our @EXPORT    = qw(
     $DECODE_SCALE_IA $DECODE_SCALE_IS $DECODE_TRACER $DECODE_SCALE_VA $DECODE_SCALE_VS 
     $ENCODE_TRACER $ENCODE_SCALE_VA $ENCODE_SCALE_VS $ENCODE_SCALE_VG  $SCALE_VSU 
     %averaging_to_tracer %gain_from_tracer %gain_to_tracer %gain_to_average @measurement_fields %compliance_to_tracer
-    $cal
+    $cal $VsupSystem
   );
   
 # commands http://dos4ever.com/uTracerlog/tubetester2.html#protocol
@@ -26,6 +26,10 @@ const our $CMD_MEASURE_HOLD => 0x20;    # for magic eye?  ... Yes.
 const our $CMD_END          => 0x30;
 const our $CMD_FILAMENT     => 0x40;
 const our $CMD_PING         => 0x50;
+
+
+# rough guess as to what the system supply is supposed to be
+const our $VsupSystem => 19.5;
 
 # Resistors in voltage dividers, 400V version.  These are not correct for other versions.
 # values mostly taken from VB code provided by Ronald:

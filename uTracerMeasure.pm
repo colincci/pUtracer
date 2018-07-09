@@ -2,8 +2,10 @@ package uTracerMeasure;
 
 use strict;
 use warnings;
+use v5.10;
 
 use Exporter qw( import );
+use uTracerConstants;
 use uTracerComs;
 
 
@@ -102,6 +104,7 @@ sub getVf {    # {{{ # getVf is done
 
 
 sub init_voltage_ranges {
+	my $opts = shift;
 
 	my ( @va, @vs, @vg );
 
@@ -149,6 +152,9 @@ sub init_voltage_ranges {
 
 
 sub quicktest_triode {    # {{{
+	my $tracer = shift;
+	my $opts = shift;
+	my $log = shift;
 	printf STDERR "Running quicktest...\n";
 
 	# print log header
@@ -163,11 +169,11 @@ sub quicktest_triode {    # {{{
 	);
 
 	# 50 - read out AD
-	my $data = ping();
+	my $data = ping($tracer,$opts);
 
 	# set filament
 	# 40 - set fil voltage (repeated 10x) +=10% of voltage, once a second
-	warmup_tube();
+	warmup_tube($tracer,$opts);
 
 	# do the five measurements for a triode http://dos4ever.com/uTracerlog/tubetester2.html#quicktest
 	# theory explained here https://wtfamps.wordpress.com/mugmrp/
@@ -175,7 +181,7 @@ sub quicktest_triode {    # {{{
 	# Basically, we do four measurements offset around the suggested bias point of a tube.  The suggested bias point is the 5th.
 	# Think of the pattern of dots of the 5th side of a six sided die, to visualize.
 
-	my ($va, $vs, $vg) = init_voltage_ranges(); # make sure the requeted voltage ranges are within the capabilities of the uTracer
+	my ($va, $vs, $vg) = init_voltage_ranges($opts); # make sure the requeted voltage ranges are within the capabilities of the uTracer
 	my (@todo);
 
 
@@ -187,7 +193,7 @@ sub quicktest_triode {    # {{{
 
 	#if ($opts->{debug}) {dump_csv( 'todo.csv', \@todo );}
 
-	my $results = get_results_matrix(\@todo);
+	my $results = get_results_matrix($opts, $log, \@todo);
 
 	### Do the calculations now that we have the results
 	if ($opts->{debug}) {dump_csv( 'results.csv', $results )}
@@ -286,10 +292,10 @@ sub quicktest_triode {    # {{{
 	print_dual(sprintf("# SECTION ANODE\n#\n"));
 	print_dual(sprintf("# Test Conditions: Va: %dv @ %d %%, Vg: %1.1fv @ %d %%\n#\n",$opts->{va}->[0],$opts->{offset}, $opts->{vg}->[0],$opts->{offset}));
 	print_dual(sprintf("# Test Results: Ia: %2.2f mA (%d%%), Ra: %2.2f kOhm (%d%%), Gm: %2.2f mA/V (%d%%), Mu: %d (%d%%)\n#\n",$center->{Ia}, ( $center->{Ia} / $opts->{ia} ) * 100,$RpA, ( $RpA / $opts->{rp} ) * 100,$GmA, ( $GmA / $opts->{gm} ) * 100,$MuA, ( $MuA / $opts->{mu} ) * 100,));
-	print_dual( sprintf("# SECTION SCREEN\n#\n"));
+	print_dual( $log, sprintf("# SECTION SCREEN\n#\n"));
 	print_dual(sprintf("# Test Conditions: Vs: %dv @ %d %%, Vg: %1.1fv @ %d %%\n#\n",$opts->{vs}->[0],$opts->{offset}, $opts->{vg}->[0],$opts->{offset}));
 
-	print_dual( sprintf("# Test Results: Is: %2.2f mA (%d%%), Rs: %2.2f kOhm (%d%%), Gm: %2.2f mA/V (%d%%), Mu: %d (%d%%)\n#\n",$center->{Is}, ( $center->{Is} / $opts->{ia} ) * 100,$RpS, ( $RpS / $opts->{rp} ) * 100,$GmS, ( $GmS / $opts->{gm} ) * 100,$MuS, ( $MuS / $opts->{mu} ) * 100,));
+	print_dual( $log, sprintf("# Test Results: Is: %2.2f mA (%d%%), Rs: %2.2f kOhm (%d%%), Gm: %2.2f mA/V (%d%%), Mu: %d (%d%%)\n#\n",$center->{Is}, ( $center->{Is} / $opts->{ia} ) * 100,$RpS, ( $RpS / $opts->{rp} ) * 100,$GmS, ( $GmS / $opts->{gm} ) * 100,$MuS, ( $MuS / $opts->{mu} ) * 100,));
 
 	#@pentode_fields = qw( type serial ia is ra rs gma gms mua mus dIa_dVs dIs_dVa );
 
@@ -304,7 +310,8 @@ sub quicktest_triode {    # {{{
 
 
 sub get_results_matrix {
-
+	my $opts = shift;
+	my $log = shift;
 	my $todo = shift;
 	my @results;
 	my $count = 1;
@@ -355,6 +362,7 @@ sub get_results_matrix {
 
 
 sub print_dual {
+	my $log = shift;
 	my $outstring = shift;
 	$log->printf($outstring);
 	print STDOUT ($outstring);
@@ -362,6 +370,9 @@ sub print_dual {
 
 
 sub quicktest_pentode {    # {{{
+	my $tracer = shift;
+	my $opts = shift;
+	my $log = shift;
 	printf STDERR "Running quicktest...\n";
 
 	# print log header
@@ -414,7 +425,7 @@ sub quicktest_pentode {    # {{{
 
 	if ($opts->{debug}) {dump_csv( 'todo.csv', \@todo );}
 
-	my $results = get_results_matrix(\@todo);
+	my $results = get_results_matrix($opts, $log, \@todo);
 
 	### Do the calculations now that we have the results
 	if ($opts->{debug}) {dump_csv( 'results.csv', $results )}
@@ -477,13 +488,13 @@ sub quicktest_pentode {    # {{{
 
 	### Output
 
-	print_dual( sprintf( "\n# %s  pUTracer3 400V CLI, V%s Triode Quick Test\n#\n",strftime( "%m/%d/%Y %I:%m:%S %p", localtime() ), $VERSION ));
-	print_dual( sprintf( "# %s %s\n#\n", $opts->{tube}, $opts->{name} ) );
+	print_dual( $log, sprintf( "\n# %s  pUTracer3 400V CLI, V%s Triode Quick Test\n#\n",strftime( "%m/%d/%Y %I:%m:%S %p", localtime() ), $VERSION ));
+	print_dual( $log, sprintf( "# %s %s\n#\n", $opts->{tube}, $opts->{name} ) );
 
-	print_dual( sprintf("# Test Conditions: Va: %dv @ %d %%, Vs: %dv @ %d %%, Vg: %1.1fv @ %d %%\n#\n",$opts->{va}->[0],$opts->{offset}, $opts->{vs}->[0],$opts->{offset}, $opts->{vg}->[0],$opts->{offset}) );
-	print_dual( sprintf("# Anode Results: Ia: %2.2f mA (%d%%), Ra: %2.2f kOhm (%d%%), GmA: %2.2f mA/V (%d%%), Mu1: %d (%d%%), dIa/dVs: %5.4f (uA/V) \n#\n",$center->{Ia},( $center->{Ia} / $opts->{ia} ) * 100,$RpA,( $RpA / $opts->{rp} ) * 100,$GmA,( $GmA / $opts->{gm} ) * 100,$MuA,( $MuA / $opts->{mu} ) * 100,$dIa_dVs * 1000,));
+	print_dual( $log, sprintf("# Test Conditions: Va: %dv @ %d %%, Vs: %dv @ %d %%, Vg: %1.1fv @ %d %%\n#\n",$opts->{va}->[0],$opts->{offset}, $opts->{vs}->[0],$opts->{offset}, $opts->{vg}->[0],$opts->{offset}) );
+	print_dual( $log, sprintf("# Anode Results: Ia: %2.2f mA (%d%%), Ra: %2.2f kOhm (%d%%), GmA: %2.2f mA/V (%d%%), Mu1: %d (%d%%), dIa/dVs: %5.4f (uA/V) \n#\n",$center->{Ia},( $center->{Ia} / $opts->{ia} ) * 100,$RpA,( $RpA / $opts->{rp} ) * 100,$GmA,( $GmA / $opts->{gm} ) * 100,$MuA,( $MuA / $opts->{mu} ) * 100,$dIa_dVs * 1000,));
 
-	print_dual( sprintf("# Screen Results: Is: %2.2f mA (%d%%), Rs: %2.2f kOhm , GmS: %2.2f mA/V , Mu2: %d , dIs/dVa %5.4f (uA/V) \n#\n",$center->{Is}, ( $center->{Is} / $opts->{is} ) * 100,$RpS, $GmS, $MuS, $dIs_dVa * 1000));
+	print_dual( $log, sprintf("# Screen Results: Is: %2.2f mA (%d%%), Rs: %2.2f kOhm , GmS: %2.2f mA/V , Mu2: %d , dIs/dVa %5.4f (uA/V) \n#\n",$center->{Is}, ( $center->{Is} / $opts->{is} ) * 100,$RpS, $GmS, $MuS, $dIs_dVa * 1000));
 
 	print_dual(sprintf( "# Deltas: dVa %2.2f V, dVs %2.2f V, dVg %2.2f V \n#\n",$dVa, $dVs, $dVg ));
 

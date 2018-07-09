@@ -2,14 +2,17 @@ package uTracerComs;
 
 use strict;
 use warnings;
+use v5.10;
 
 use Exporter qw( import );
 use Const::Fast;
 use Config::General;
 use File::Slurp;
+use Device::SerialPort;
 use uTracerConstants;
 
 our @EXPORT    = qw( 
+		init_utracer
     warmup_tube
     end_measurement
     set_filament
@@ -19,9 +22,28 @@ our @EXPORT    = qw(
     reset_tracer
     abort
   );
-  
-sub warmup_tube {
-  my $opts = shift;
+
+sub init_utracer {
+	my $opts = shift;
+	# connect to uTracer
+	my $comport = $opts->{device};
+	say "Connecting to dev:'$comport'";
+	my $tracer = Device::SerialPort->new($comport) || die "Can't open $comport: $!\n";
+	$tracer->baudrate(9600);
+	$tracer->parity("none");
+	$tracer->databits(8);
+	$tracer->stopbits(1);
+
+  # wait this long for reads to timeout.  This is in miliseconds.
+  # this is stupid high so that I can simulate the uTracer with another terminal by hand.
+  $tracer->read_const_time(10_000);
+
+  return $tracer;
+}
+
+ sub warmup_tube {
+	 my $tracer = shift;
+   my $opts = shift;
 
 	if ( $opts->{hot} ) {    # {{{
 		# "hot" mode - just set it to max
@@ -33,7 +55,7 @@ sub warmup_tube {
 		foreach my $mult ( 1 .. 10 ) {
 			my $voltage = $mult * ( $opts->{vf}->[-1] / 10 );
 			printf STDERR "Setting fil voltage to %2.1f\n", $voltage if ( $opts->{verbose} );
-			set_filament( getVf($voltage) );
+			set_filament( $tracer, $opts, getVf($voltage) );
 			sleep 1;
 		}
 	}    # }}}
@@ -46,6 +68,7 @@ sub warmup_tube {
 }
 
 sub end_measurement {    # {{{
+	my $tracer = shift;
   my $opts = shift;
 	my (%args) = @_;
 	my $string = sprintf( "%02X00000000%02X%02X%02X%02X", $CMD_END, 0, 0, 0, 0 );
@@ -58,6 +81,7 @@ sub end_measurement {    # {{{
 
 
 sub set_filament {    # {{{
+	my $tracer = shift;
   my $opts = shift;
 	my ($voltage) = @_;
 	my $string = sprintf( "%02X000000000000%04X", $CMD_FILAMENT, $voltage );
@@ -70,6 +94,7 @@ sub set_filament {    # {{{
 
 
 sub ping {    # {{{
+	my $tracer = shift;
   my $opts = shift;
 	my $string = sprintf( "%02X00000000%02X%02X%02X%02X", $CMD_PING, 0, 0, 0, 0 );
 	print "> $string\n" if ( $opts->{debug} );
@@ -86,6 +111,7 @@ sub ping {    # {{{
 
 
 sub send_settings {    # {{{
+	my $tracer = shift;
   my $opts = shift;
 	my (%args) = @_;
 	my $string = sprintf("%02X00000000%02X%02X%02X%02X",$CMD_START,$compliance_to_tracer{ $args{compliance} },$averaging_to_tracer{ $args{averaging} } || 0,$gain_to_tracer{ $args{gain_is} }        || 0,$gain_to_tracer{ $args{gain_ia} }        || 0,);
@@ -98,6 +124,7 @@ sub send_settings {    # {{{
 
 
 sub do_measurement {    # {{{
+	my $tracer = shift;
   my $opts = shift;
 	my (%args) = @_;
 	my $string = sprintf("%02X%04X%04X%04X%04X",$CMD_MEASURE,getVa( $args{va} ),getVs( $args{vs} ),getVg( $args{vg} ),getVf( $args{vf} ),);
@@ -116,16 +143,18 @@ sub do_measurement {    # {{{
 # send an escape character, to reset the input buffer of the uTracer.
 # This unfortunately, does not actually *reset* the uTracer.
 sub reset_tracer {
+	my $tracer = shift;
 	$tracer->write("\x1b");
 }
 
 sub abort {
+	my $tracer = shift;
   my $opts = shift;
 	print "Aborting!\n";
 
 	#reset_tracer();
-	end_measurement($opts);
-	set_filament($opts,0);
+	end_measurement($tracer,$opts);
+	set_filament($tracer,$opts,0);
 	die "uTracer reports compliance error, current draw is too high.  Test aborted";
 }
 

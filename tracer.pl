@@ -7,7 +7,7 @@ use warnings;
 use Getopt::Long;
 use Data::Dumper;
 use Pod::Usage;
-use Device::SerialPort;
+#use Device::SerialPort;
 use List::Util qw(max first);
 use POSIX qw(strftime);
 my $VERSION = "0.0.1";
@@ -16,7 +16,7 @@ use Config::General;
 use File::Slurp;
 use File::Basename;
 use lib dirname(__FILE__);
-use uTracerConstants;
+#use uTracerConstants;
 use uTracerMeasure;
 use TubeDatabase;
 
@@ -102,18 +102,8 @@ sub get_commandline {
 initdb();
 get_commandline($opts);
 
-# connect to uTracer
-my $comport = $opts->{device};
-say "Connecting to dev:'$comport'";
-my $tracer = Device::SerialPort->new($comport) || die "Can't open $comport: $!\n";
-$tracer->baudrate(9600);
-$tracer->parity("none");
-$tracer->databits(8);
-$tracer->stopbits(1);
+my $tracer = init_utracer($opts);
 
-# wait this long for reads to timeout.  This is in miliseconds.
-# this is stupid high so that I can simulate the uTracer with another terminal by hand.
-$tracer->read_const_time(10_000);
 
 # append log, no overwrite
 open( my $log, ">>", $opts->{log} );
@@ -160,9 +150,9 @@ my $VsupSystem = 19.5;
 if ( !( $opts->{quicktest} || $opts->{"quicktest-pentode"} ) ) {
 	do_curve();
 } elsif ( $opts->{quicktest} ) {
-	quicktest_triode();
+	quicktest_triode($tracer,$opts,$log);
 } elsif ( $opts->{"quicktest-pentode"} ) {
-	quicktest_pentode();
+	quicktest_pentode($tracer,$opts,$log);
 } else {
 	die "lolwat";
 }
