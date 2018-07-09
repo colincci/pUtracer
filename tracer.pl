@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 # vim: foldmethod=marker ts=4 sw=2 commentstring=\ #\ %s
 $| = 1;                    # Force flush stdout.
 use strict;
@@ -17,6 +17,7 @@ use File::Slurp;
 use File::Basename;
 use lib dirname(__FILE__);
 #use uTracerConstants;
+use uTracerComs;
 use uTracerMeasure;
 use TubeDatabase;
 
@@ -45,7 +46,7 @@ sub get_commandline {
 
 	$Getopt::Long::autoabbrev = 1;
 	$Getopt::Long::bundling   = 1;
-	my @usaage = (
+	my @usage = (
 		"configfile=s",                         # Path to the config file, defaults to app.ini in the current directory
 		"log=s",                                # Path to the log file
 
@@ -87,6 +88,7 @@ sub get_commandline {
 
 	# Copy in tube name from preset, if not specified on the command line.
 	$opts->{tube} ||= $opts->{preset_name};
+	return $opts;
 
 }
 
@@ -100,7 +102,7 @@ sub get_commandline {
 
 
 initdb();
-get_commandline($opts);
+my $opts = get_commandline();
 
 my $tracer = init_utracer($opts);
 
@@ -148,11 +150,11 @@ my $VsupSystem = 19.5;
 
 # "main"
 if ( !( $opts->{quicktest} || $opts->{"quicktest-pentode"} ) ) {
-	do_curve();
+	do_curve( $tracer, $opts, $log );
 } elsif ( $opts->{quicktest} ) {
-	quicktest_triode($tracer,$opts,$log);
+	quicktest_triode( $tracer, $opts, $log );
 } elsif ( $opts->{"quicktest-pentode"} ) {
-	quicktest_pentode($tracer,$opts,$log);
+	quicktest_pentode( $tracer, $opts, $log);
 } else {
 	die "lolwat";
 }

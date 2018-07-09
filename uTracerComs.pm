@@ -21,6 +21,7 @@ our @EXPORT    = qw(
     do_measurement
     reset_tracer
     abort
+		decode_measurement
   );
 
 sub init_utracer {
@@ -104,7 +105,8 @@ sub ping {    # {{{
 	if ( $response ne $string ) { warn "uTracer returned $response, when I expected $string"; }
 	( $bytes, $response ) = $tracer->read(38);
 	print "< $response\n" if ( $opts->{debug} );
-	my $data = decode_measurement($response);
+	my $data = decode_measurement($opts, $response);
+
 	@{$data}{qw(Va Vs Vg Vf)} = ( 0, 0, 0, 0 );
 	return $data;
 }    # }}}
@@ -157,6 +159,73 @@ sub abort {
 	set_filament($tracer,$opts,0);
 	die "uTracer reports compliance error, current draw is too high.  Test aborted";
 }
+
+sub decode_measurement {    # {{{
+	my $opts = shift;
+	my ($str) = @_;
+	$str =~ s/ //g;
+	my $data = {};
+	@{$data}{@measurement_fields} = map { hex($_) } unpack( "A2 A4 A4 A4 A4 A4 A4 A4 A4 A2 A2", $str );
+
+	# status byte = 10 - all good.
+	# status byte = 11 - compliance error
+	if ( $data->{Status} == 0x11 ) {
+		warn "uTracer reports overcurrent!";
+		abort();
+	}
+
+	$data->{Vpsu} *= $DECODE_TRACER * $SCALE_VSU * $cal->{CalVar5};
+
+	# update PSU voltage global
+	$VsupSystem = $data->{Vpsu};
+
+	$data->{Va_Meas} *= $DECODE_TRACER * $DECODE_SCALE_VA;    # * CalVar1;
+	# Va is in reference to PSU, adjust
+	$data->{Va_Meas} -= $data->{Vpsu};
+
+	$data->{Vs_Meas} *= $DECODE_TRACER * $DECODE_SCALE_VS;    # * CalVar2;
+	# Vs is in reference to PSU, adjust
+	$data->{Vs_Meas} -= $data->{Vpsu};
+
+	$data->{Ia} *= $DECODE_TRACER * $DECODE_SCALE_IA * $cal->{CalVar3};
+	$data->{Is} *= $DECODE_TRACER * $DECODE_SCALE_IS * $cal->{CalVar4};
+
+	$data->{Ia_Raw} *= $DECODE_TRACER * $DECODE_SCALE_IA * $cal->{CalVar3};
+	$data->{Is_Raw} *= $DECODE_TRACER * $DECODE_SCALE_IS * $cal->{CalVar4};
+
+	$data->{Vmin} = 5 * ( ( $VminR1 + $VminR2 ) / $VminR1 ) * ( ( $data->{Vmin} / 1024 ) - 1 );
+	$data->{Vmin} += 5;
+
+	# decode gain
+	@{$data}{qw(Gain_Ia Gain_Is)} = map { $gain_from_tracer{$_} } @{$data}{qw(Gain_Ia Gain_Is)};
+
+	# undo gain amplification
+	# XXX NOTE: the uTracer can and will use different PGA gains for Ia and Is!
+	$data->{Ia} = $data->{Ia} / $data->{Gain_Ia};
+	$data->{Is} = $data->{Is} / $data->{Gain_Is};
+
+	# average
+	# XXX NOTE: the uTracer can and will use different PGA gains for Ia and Is!  Averaging is global though.
+	my $averaging =
+	    $gain_to_average{ $data->{Gain_Ia} } > $gain_to_average{ $data->{Gain_Is} }
+	  ? $gain_to_average{ $data->{Gain_Ia} }
+	  : $gain_to_average{ $data->{Gain_Is} };
+	$data->{Ia} /= $averaging;
+	$data->{Is} /= $averaging;
+
+	if ( $opts->{correction} ) {
+		$data->{Va_Meas} = $data->{Va_Meas} - ( ( $data->{Ia} ) / 1000 ) * $AnodeRs -  ( 0.6 * $cal->{CalVar7} );
+		$data->{Vs_Meas} = $data->{Vs_Meas} - ( ( $data->{Is} ) / 1000 ) * $ScreenRs - ( 0.6 * $cal->{CalVar7} );
+	}
+
+	if ( $opts->{verbose} ) {
+		printf "\nstat ____ia iacmp ____is _is_comp ____va ____vs _vPSU _vneg ia_gain is_gain\n";
+		printf "% 4x % 6.1f % 5.1f % 6.1f % 8.1f % 6.1f % 6.1f % 2.1f % 2.1f % 7d % 7d\n", @{$data}{@measurement_fields};
+	}
+
+	return $data;
+}    # }}}
+
 
 __PACKAGE__;
 
