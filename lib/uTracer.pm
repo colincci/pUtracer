@@ -1,24 +1,67 @@
 package uTracer;
 
+use Moose;
+use namespace::autoclean;
+
+
 use strict;
 use warnings;
 use v5.10;
 use Config::General;
 use File::Slurp;
 use Device::SerialPort;
-use uTracerConstants;
+use uTracer::Constants;
+use Log::Log4perl qw( get_logger :levels );
+use constant { TRUE => 1, FALSE => 0 };
 
-use Class::Std::Utils;
-{
-    Readonly my $BIT_PACKING => 'b*';    # i.e. vec( ) compatible binary
-    Readonly my $BIT_DENSITY => 1;       # i.e. 1 bit/bit
+########################
+## ATTRIBUTES
+########################
 
-    # Attributes...
-    my %bitset_of;
 
-    sub new {
-        # [As in] Example 15-9
+has 'cfg'	=> (is => 'ro', isa => 'Hash');
+has 'tracer' => (is => 'ro', isa => 'Device::SerialPort');
+has 'opt'	=> (is => 'ro', isa => 'Hash');
+
+has 'log' => (
+    is      => 'rw',
+    isa     => 'Log::Log4perl::Logger',
+    lazy    => 1,
+    default => sub {
+        my $log = get_logger();
+        $log->debug("Initialized Logger in HOST Object.");
+        return $log;
+    }
+);
+
+########################
+## METHODS
+########################
+
+sub BUILD {
+    my $self = shift;
+    my $args = shift;
+
+    my $log = get_logger();
+    $log->debug("Host.pm BUILD running!");
+    if ( $self->isremote ) {
+        my $ssh = $self->ssh;    # should cause the ssh builder to kick in and establish the ssh session.
+    }
+    $self->ck_host;
+
+    #force the builders to run.
+    #    my $sshd_config = $self->sshd_config;
+    #    my $opt_files = $self->opt_files;
+    #    my $passwd = $self->etc_passwd;
+    #    my $shadow = $self->etc_shadow;
+    #    my $etc_motd = $self->etc_motd;
+}
+
+sub init_tracer {
+
+	# [As in] Example 15-9
 	my $opts = shift;
+
 	# connect to uTracer
 	my $comport = $opts->{device};
 	say "Connecting to dev:'$comport'";
@@ -28,26 +71,18 @@ use Class::Std::Utils;
 	$tracer->databits(8);
 	$tracer->stopbits(1);
 
-  # wait this long for reads to timeout.  This is in miliseconds.
-  # this is stupid high so that I can simulate the uTracer with another terminal by hand.
-  $tracer->read_const_time(10_000);
-
-  return $tracer;
-} 
-    }
-
-
-
-
+	# wait this long for reads to timeout.  This is in miliseconds.
+	# this is stupid high so that I can simulate the uTracer with another terminal by hand.
+	$tracer->read_const_time(10_000);
 }
 
 
- sub warmup_tube {
-	 my $tracer = shift;
-   my $opts = shift;
+sub warmup_tube {
+	my $tracer = shift;
+	my $opts = shift;
 
 	if ( $opts->{hot} ) {    # {{{
-		# "hot" mode - just set it to max
+		 # "hot" mode - just set it to max
 		set_filament( getVf( $opts->{vf}->[-1] ) );
 	} else {
 
@@ -68,9 +103,10 @@ use Class::Std::Utils;
 	printf STDERR "Tube heated.\n";
 }
 
+
 sub end_measurement {    # {{{
 	my $tracer = shift;
-  my $opts = shift;
+	my $opts = shift;
 	my (%args) = @_;
 	my $string = sprintf( "%02X00000000%02X%02X%02X%02X", $CMD_END, 0, 0, 0, 0 );
 	print "> $string\n" if ( $opts->{debug} );
@@ -83,7 +119,7 @@ sub end_measurement {    # {{{
 
 sub set_filament {    # {{{
 	my $tracer = shift;
-  my $opts = shift;
+	my $opts = shift;
 	my ($voltage) = @_;
 	my $string = sprintf( "%02X000000000000%04X", $CMD_FILAMENT, $voltage );
 	print "> $string\n" if ( $opts->{debug} );
@@ -96,7 +132,7 @@ sub set_filament {    # {{{
 
 sub ping {    # {{{
 	my $tracer = shift;
-  my $opts = shift;
+	my $opts = shift;
 	my $string = sprintf( "%02X00000000%02X%02X%02X%02X", $CMD_PING, 0, 0, 0, 0 );
 	print "> $string\n" if ( $opts->{debug} );
 	$tracer->write($string);
@@ -114,7 +150,7 @@ sub ping {    # {{{
 
 sub send_settings {    # {{{
 	my $tracer = shift;
-  my $opts = shift;
+	my $opts = shift;
 	my (%args) = @_;
 	my $string = sprintf("%02X00000000%02X%02X%02X%02X",$CMD_START,$compliance_to_tracer{ $args{compliance} },$averaging_to_tracer{ $args{averaging} } || 0,$gain_to_tracer{ $args{gain_is} }        || 0,$gain_to_tracer{ $args{gain_ia} }        || 0,);
 	print "> $string\n" if ( $opts->{debug} );
@@ -127,7 +163,7 @@ sub send_settings {    # {{{
 
 sub do_measurement {    # {{{
 	my $tracer = shift;
-  my $opts = shift;
+	my $opts = shift;
 	my (%args) = @_;
 	my $string = sprintf("%02X%04X%04X%04X%04X",$CMD_MEASURE,getVa( $args{va} ),getVs( $args{vs} ),getVg( $args{vg} ),getVf( $args{vf} ),);
 	print "> $string\n" if ( $opts->{debug} );
@@ -149,9 +185,10 @@ sub reset_tracer {
 	$tracer->write("\x1b");
 }
 
+
 sub abort {
 	my $tracer = shift;
-  my $opts = shift;
+	my $opts = shift;
 	print "Aborting!\n";
 
 	#reset_tracer();
@@ -159,6 +196,7 @@ sub abort {
 	set_filament($tracer,$opts,0);
 	die "uTracer reports compliance error, current draw is too high.  Test aborted";
 }
+
 
 sub decode_measurement {    # {{{
 	my $opts = shift;
@@ -180,11 +218,11 @@ sub decode_measurement {    # {{{
 	$VsupSystem = $data->{Vpsu};
 
 	$data->{Va_Meas} *= $DECODE_TRACER * $DECODE_SCALE_VA;    # * CalVar1;
-	# Va is in reference to PSU, adjust
+	 # Va is in reference to PSU, adjust
 	$data->{Va_Meas} -= $data->{Vpsu};
 
 	$data->{Vs_Meas} *= $DECODE_TRACER * $DECODE_SCALE_VS;    # * CalVar2;
-	# Vs is in reference to PSU, adjust
+	 # Vs is in reference to PSU, adjust
 	$data->{Vs_Meas} -= $data->{Vpsu};
 
 	$data->{Ia} *= $DECODE_TRACER * $DECODE_SCALE_IA * $cal->{CalVar3};
@@ -226,7 +264,6 @@ sub decode_measurement {    # {{{
 	return $data;
 }    # }}}
 
-
-__PACKAGE__;
+__PACKAGE__->meta->make_immutable();
 
 __END__
