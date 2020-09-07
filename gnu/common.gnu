@@ -1,4 +1,5 @@
 # common to all graphs
+set loadpath "./gnu"
 #set terminal svg size 800,600 fname 'Verdana' fsize 12
 set termoption dash
 set terminal png size 800,600

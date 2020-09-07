@@ -1,14 +1,15 @@
 #!/bin/bash
+export GNUPLOT_LIB=./gnu/
 
 for foo in *-gm.csv; do
   TYPE=`echo $foo | cut -f1 -d-`
   SERIAL=`echo $foo | cut -f2 -d-`
-  gnuplot -e "SERIAL='${SERIAL}'" -c transconductance.gnu $foo $TYPE
+  gnuplot -e "SERIAL='${SERIAL}'" -c ./gnu/transconductance.gnu $foo $TYPE
 done
 
 for foo in *-rp.csv; do
   TYPE=`echo $foo | cut -f1 -d-`
   SERIAL=`echo $foo | cut -f2 -d-`
-  gnuplot -e "SERIAL='${SERIAL}'" -c plate_resistance.gnu $foo $TYPE
+  gnuplot -e "SERIAL='${SERIAL}'" -c ./gnu/plate_resistance.gnu $foo $TYPE
 done
 
