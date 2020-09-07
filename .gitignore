@@ -1,6 +1,8 @@
 .project
 data
 pentodes
+triodes
+examples
 *.csv
 *.png
 *.pdf

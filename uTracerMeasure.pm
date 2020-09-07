@@ -9,8 +9,6 @@ use constant { TRUE => 1, FALSE => 0 };
 
 
 use Exporter qw( import );
-#use uTracerConstants;
-#use uTracerUtil;
 use uTracerComs;
 use TubeDatabase;
 
@@ -52,7 +50,6 @@ sub init_voltage_ranges {
 	push @va, $opts->{va}[0] - ( $opts->{va}[0] * ( $opts->{offset} / 100 ) );
 	push @va, $opts->{va}[0] + ( $opts->{va}[0] * ( $opts->{offset} / 100 ) );
 
-
 	# bracket Vs
 	push @vs, $opts->{vs}[0] - ( $opts->{vs}[0] * ( $opts->{offset} / 100 ) );
 	push @vs, $opts->{vs}[0] + ( $opts->{vs}[0] * ( $opts->{offset} / 100 ) );
@@ -82,14 +79,6 @@ sub quicktest_triode {    # {{{
 
 	# 00 - send settings w/ compliance, etc.
 	send_settings($tracer, $opts);
-	#send_settings(
-	#	tracer 	   => $tracer,
-	#	opts       => $opts,
-	#	compliance => $opts->{compliance},
-    # 		averaging  => $opts->{averaging},
-    #		gain_is    => $opts->{gain},
-    #		gain_ia    => $opts->{gain}
-    #	);
 
 	# 50 - read out AD
 	my $data = ping($tracer,$opts);
@@ -106,7 +95,6 @@ sub quicktest_triode {    # {{{
 
 	my ($va, $vs, $vg) = init_voltage_ranges($opts); # make sure the requeted voltage ranges are within the capabilities of the uTracer
 	my (@todo);
-
 
 	# four corner dots
 	@todo = map { { va => @$va[ $_->[0] ], vs => @$vs[ $_->[0] ], vg => @$vg[ $_->[1] ] } } ( [ 0, 0 ], [ 0, 1 ], [ 1, 0 ], [ 1, 1 ] );
@@ -220,8 +208,6 @@ sub quicktest_triode {    # {{{
 
 	print_dual( $log, sprintf("# Test Results: Is: %2.2f mA (%d%%), Rs: %2.2f kOhm (%d%%), Gm: %2.2f mA/V (%d%%), Mu: %d (%d%%)\n#\n",$center->{Is}, ( $center->{Is} / $opts->{ia} ) * 100,$RpS, ( $RpS / $opts->{rp} ) * 100,$GmS, ( $GmS / $opts->{gm} ) * 100,$MuS, ( $MuS / $opts->{mu} ) * 100,));
 
-	#@pentode_fields = qw( type serial ia is ra rs gma gms mua mus dIa_dVs dIs_dVa );
-
 	if ($opts->{store}) {
 		print STDOUT "Updating tube:" . $opts->{tube} . ':' . $opts->{name} . " triodes table in tubes.sq3\n";
 		my %db_data;
@@ -286,14 +272,12 @@ sub get_results_matrix {
 	return \@results;
 }
 
-
 sub print_dual {
 	my $log = shift;
 	my $outstring = shift;
 	$log->printf($outstring);
 	print STDOUT ($outstring);
 }
-
 
 sub quicktest_pentode {    # {{{
 	my $tracer = shift;
@@ -305,19 +289,19 @@ sub quicktest_pentode {    # {{{
 	$log->printf( "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",qw(Name Tube Point Vpsu Vmin Vg Va Va_Meas Ia Ia_Raw Ia_Gain Vs Vs_Meas Is Is_Raw Is_Gain Vf) );
 
 	# 00 - send settings w/ compliance, etc.
-	send_settings(
-		compliance => $opts->{compliance},
-		averaging  => $opts->{averaging},
-		gain_is    => $opts->{gain},
-		gain_ia    => $opts->{gain}
-	);
+	send_settings( $tracer, $opts );
+	#	compliance => $opts->{compliance},
+	#	averaging  => $opts->{averaging},
+	#	gain_is    => $opts->{gain},
+	#	gain_ia    => $opts->{gain}
+	#);
 
 	# read out AD
-	my $data = ping();
+	my $data = ping($tracer, $opts);
 
 	# set filament
 	# set fil voltage (repeated 10x) +=10% of voltage, once a second
-	warmup_tube();
+	warmup_tube($tracer, $opts);
 
 	# do the seven measurements for a pentode -> http://dos4ever.com/uTracerlog/tubetester2.html#quicktest
 	#
@@ -333,7 +317,7 @@ sub quicktest_pentode {    # {{{
 	# VaMax,VaMin             Vs                Vg
 	#
 
-	my ($va, $vs, $vg) = init_voltage_ranges(); # make sure the requeted voltage ranges are within the capabilities of the uTracer
+	my ($va, $vs, $vg) = init_voltage_ranges($opts); # make sure the requeted voltage ranges are within the capabilities of the uTracer
 
 	my @todo;
 
@@ -422,9 +406,9 @@ sub quicktest_pentode {    # {{{
 
 	print_dual( $log, sprintf("# Screen Results: Is: %2.2f mA (%d%%), Rs: %2.2f kOhm , GmS: %2.2f mA/V , Mu2: %d , dIs/dVa %5.4f (uA/V) \n#\n",$center->{Is}, ( $center->{Is} / $opts->{is} ) * 100,$RpS, $GmS, $MuS, $dIs_dVa * 1000));
 
-	print_dual(sprintf( "# Deltas: dVa %2.2f V, dVs %2.2f V, dVg %2.2f V \n#\n",$dVa, $dVs, $dVg ));
+	print_dual( $log, sprintf( "# Deltas: dVa %2.2f V, dVs %2.2f V, dVg %2.2f V \n#\n",$dVa, $dVs, $dVg ));
 
-	print_dual("\n\n");
+	print_dual($log, "\n\n");
 
 	#@pentode_fields = qw( type serial ia is ra rs gma gms mua mus dIa_dVs dIs_dVa );
 
@@ -482,27 +466,17 @@ sub do_curve {    # {{{
 	printf STDERR "Preparing to run curve...\n";
 
 	# 00 - send settings w/ compliance, etc.
-	send_settings(    # {{{
-		compliance => $opts->{compliance},
-		averaging  => $opts->{averaging},
-		gain_is    => $opts->{gain},
-		gain_ia    => $opts->{gain}
-	);                # }}}
+	send_settings($tracer, $opts);
 
 	# 50 - read out AD
-	my $data = ping();
+	my $data = ping($tracer, $opts);
 
 	# set filament
 	# 40 - set fil voltage (repeated 10x) +=10% of voltage, once a second
-	warmup_tube();
+	warmup_tube($tracer, $opts);
 
 	#   00 - set settings again
-	send_settings(
-		compliance => $opts->{compliance},
-		averaging  => $opts->{averaging},
-		gain_is    => $opts->{gain},
-		gain_ia    => $opts->{gain}
-	);
+	send_settings($tracer, $opts);
 
 	#   10 - do measurement
 	my $point = 1;
@@ -512,6 +486,8 @@ sub do_curve {    # {{{
 
 			printf("\nMeasuring Vg: %f\tVa: %f\tVs: %f\tVf: %f\n",$opts->{vg}->[$vg_step],$opts->{va}->[$step],$opts->{vs}->[$step],$opts->{vf}->[$step] || $opts->{vf}->[0]) if ( $opts->{verbose} );
 			my $measurement = do_measurement(
+				$tracer,
+				$opts,
 				vg => $opts->{vg}->[$vg_step],
 				va => $opts->{va}->[$step],
 				vs => $opts->{vs}->[$step],
@@ -524,7 +500,7 @@ sub do_curve {    # {{{
 	}    # }}}
 	# 30 -- end measurement
 	printf STDERR "...done\n";
-	end_measurement();
+	end_measurement($tracer,$opts);
 
 	#reset_tracer();
 
@@ -536,7 +512,7 @@ sub do_curve {    # {{{
 
 	# 00 - all zeros turn everything off
 	# 40 turn off fil
-	set_filament(0) if ( !$opts->{warm} );
+	set_filament($tracer,$opts,0) if ( !$opts->{warm} );
 
 	#send_settings(
 	#	  compliance => $opts->{compliance},

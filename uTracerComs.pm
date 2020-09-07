@@ -43,12 +43,12 @@ sub init_utracer {
 }
 
  sub warmup_tube {
-	 my $tracer = shift;
-   my $opts = shift;
+	my $tracer = shift;
+    my $opts = shift;
 
 	if ( $opts->{hot} ) {    # {{{
 		# "hot" mode - just set it to max
-		set_filament( getVf( $opts->{vf}->[-1] ) );
+		set_filament($tracer,$opts, getVf( $opts->{vf}->[-1] ) );
 	} else {
 
 		# cold mode - ramp it up slowly
