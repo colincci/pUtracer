@@ -1,4 +1,5 @@
 #!/bin/bash
+export GNUPLOT_LIB=./gnu
 
 for foo in *-gm.csv; do
   TYPE=`echo $foo | cut -f1 -d-`
