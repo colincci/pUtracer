@@ -4,6 +4,9 @@ use strict;
 use warnings;
 use v5.10;
 our $VERSION = "0.0.1";
+use POSIX qw(strftime);
+use constant { TRUE => 1, FALSE => 0 };
+
 
 use Exporter qw( import );
 use uTracerConstants;
@@ -13,7 +16,13 @@ use TubeDatabase;
 
 
 our @EXPORT    = qw( 
-    do_curve
+    do_curve 
+	getVf
+	getVa
+	getVs
+	getVg
+	quicktest_triode
+	quicktest_pentode 
   );
   
 sub getVa {    # {{{ # getVa is done
@@ -124,35 +133,38 @@ sub init_voltage_ranges {
 	push @vg, $opts->{vg}[0] - ( $opts->{vg}[0] * ( $opts->{offset} / 100 ) );
 	push @vg, $opts->{vg}[0] + ( $opts->{vg}[0] * ( $opts->{offset} / 100 ) );
 
-	# high
-	if ( first { $_ > 400 } @va ) {
-		die "Va voltages > 400v is not allowed.  Try reducing voltage, or offset percentage";
-	}
-
-	if ( first { $_ > 400 } @vs ) {
-		die "Vs voltages > 400v is not allowed.  Try reducing voltage, or offset percentage";
-	}
-
-	# low
-	if ( first { $_ < 2 } @va ) {
-		die "Va voltages < 2v is not allowed.  Try increasing voltage, or decreasing offset percentage";
-	}
-
-	if ( first { $_ < 2 } @vs ) {
-		die "Vs voltages < 2v is not allowed.  Try increasing voltage, or decreasing offset percentage";
-	}
-
-	# grid
-	if ( first { $_ > 0 } @vg ) {
-		die "Vg voltages > 0v is not allowed.";
-	}
-	if ( first { $_ < -40 } @vg ) {
-		die "Vg voltages < -40v is not allowed.  Try increasing voltage, or decreasing offset percentage";
-	}
-
+	# check voltage limits
+	exceedsMaxV( 'Va voltages', 400, \@va );
+	exceedsMaxV( 'Vs voltages', 400, \@vs );
+	exceedsMinV( 'Va voltages', 2, \@va );
+	exceedsMinV( 'Vs voltages', 2, \@vs );
+	exceedsMaxV( 'Vg voltages', 0, \@vg );
+	exceedsMinV( 'Vg voltages', -40, \@vs );
+		
 	return \@va, \@vs, \@vg;
 }
 
+sub exceedsMaxV {
+	my $str = shift;
+	my $maxv = shift;
+	my $arr_ptr = shift;
+	foreach my $val (@$arr_ptr) {
+		if ($val > $maxv) {
+			die "$str > $maxv are not allowed.  Try reducing voltage, or offset percentage";
+		}
+	}
+}
+
+sub exceedsMinV {
+	my $str = shift;
+	my $minv = shift;
+	my $arr_ptr = shift;
+	foreach my $val (@$arr_ptr) {
+		if ($val < $minv) {
+			die "$str < $minv are not allowed.  Try increasing voltage, or decreasing offset percentage";
+		}
+	}
+}
 
 sub quicktest_triode {    # {{{
 	my $tracer = shift;
@@ -164,19 +176,22 @@ sub quicktest_triode {    # {{{
 	$log->printf( "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",qw(Name Tube Point Vpsu Vmin Vg Va Va_Meas Ia Ia_Raw Ia_Gain Vs Vs_Meas Is Is_Raw Is_Gain Vf) );
 
 	# 00 - send settings w/ compliance, etc.
-	send_settings(
-		compliance => $opts->{compliance},
-		averaging  => $opts->{averaging},
-		gain_is    => $opts->{gain},
-		gain_ia    => $opts->{gain}
-	);
+	uTracerComs::send_settings($tracer, $opts);
+	#send_settings(
+	#	tracer 	   => $tracer,
+	#	opts       => $opts,
+	#	compliance => $opts->{compliance},
+    # 		averaging  => $opts->{averaging},
+    #		gain_is    => $opts->{gain},
+    #		gain_ia    => $opts->{gain}
+    #	);
 
 	# 50 - read out AD
-	my $data = ping($tracer,$opts);
+	my $data = uTracerComs::ping($tracer,$opts);
 
 	# set filament
 	# 40 - set fil voltage (repeated 10x) +=10% of voltage, once a second
-	warmup_tube($tracer,$opts);
+	uTracerComs::warmup_tube($tracer,$opts);
 
 	# do the five measurements for a triode http://dos4ever.com/uTracerlog/tubetester2.html#quicktest
 	# theory explained here https://wtfamps.wordpress.com/mugmrp/
@@ -196,7 +211,7 @@ sub quicktest_triode {    # {{{
 
 	#if ($opts->{debug}) {dump_csv( 'todo.csv', \@todo );}
 
-	my $results = get_results_matrix($opts, $log, \@todo);
+	my $results = get_results_matrix($tracer, $opts, $log, \@todo);
 
 	### Do the calculations now that we have the results
 	if ($opts->{debug}) {dump_csv( 'results.csv', $results )}
@@ -290,13 +305,13 @@ sub quicktest_triode {    # {{{
 	$MuA = $GmA * $RpA;
 	$MuS = $GmS * $RpS;
 
-	print_dual(sprintf( "\n# %s  pUTracer3 400V CLI, V%s Triode Quick Test\n#\n",strftime( "%m/%d/%Y %I:%m:%S %p", localtime() ), $VERSION ));
-	print_dual(sprintf( "# %s %s\n#\n", $opts->{tube}, $opts->{name} ));
-	print_dual(sprintf("# SECTION ANODE\n#\n"));
-	print_dual(sprintf("# Test Conditions: Va: %dv @ %d %%, Vg: %1.1fv @ %d %%\n#\n",$opts->{va}->[0],$opts->{offset}, $opts->{vg}->[0],$opts->{offset}));
-	print_dual(sprintf("# Test Results: Ia: %2.2f mA (%d%%), Ra: %2.2f kOhm (%d%%), Gm: %2.2f mA/V (%d%%), Mu: %d (%d%%)\n#\n",$center->{Ia}, ( $center->{Ia} / $opts->{ia} ) * 100,$RpA, ( $RpA / $opts->{rp} ) * 100,$GmA, ( $GmA / $opts->{gm} ) * 100,$MuA, ( $MuA / $opts->{mu} ) * 100,));
-	print_dual( $log, sprintf("# SECTION SCREEN\n#\n"));
-	print_dual(sprintf("# Test Conditions: Vs: %dv @ %d %%, Vg: %1.1fv @ %d %%\n#\n",$opts->{vs}->[0],$opts->{offset}, $opts->{vg}->[0],$opts->{offset}));
+	print_dual($log,sprintf( "\n# %s  pUTracer3 400V CLI, V%s Triode Quick Test\n#\n",strftime( "%m/%d/%Y %I:%m:%S %p", localtime() ), $VERSION ));
+	print_dual($log,sprintf( "# %s %s\n#\n", $opts->{tube}, $opts->{name} ));
+	print_dual($log,sprintf("# SECTION ANODE\n#\n"));
+	print_dual($log,sprintf("# Test Conditions: Va: %dv @ %d %%, Vg: %1.1fv @ %d %%\n#\n",$opts->{va}->[0],$opts->{offset}, $opts->{vg}->[0],$opts->{offset}));
+	print_dual($log,sprintf("# Test Results: Ia: %2.2f mA (%d%%), Ra: %2.2f kOhm (%d%%), Gm: %2.2f mA/V (%d%%), Mu: %d (%d%%)\n#\n",$center->{Ia}, ( $center->{Ia} / $opts->{ia} ) * 100,$RpA, ( $RpA / $opts->{rp} ) * 100,$GmA, ( $GmA / $opts->{gm} ) * 100,$MuA, ( $MuA / $opts->{mu} ) * 100,));
+	print_dual($log, sprintf("# SECTION SCREEN\n#\n"));
+	print_dual($log,sprintf("# Test Conditions: Vs: %dv @ %d %%, Vg: %1.1fv @ %d %%\n#\n",$opts->{vs}->[0],$opts->{offset}, $opts->{vg}->[0],$opts->{offset}));
 
 	print_dual( $log, sprintf("# Test Results: Is: %2.2f mA (%d%%), Rs: %2.2f kOhm (%d%%), Gm: %2.2f mA/V (%d%%), Mu: %d (%d%%)\n#\n",$center->{Is}, ( $center->{Is} / $opts->{ia} ) * 100,$RpS, ( $RpS / $opts->{rp} ) * 100,$GmS, ( $GmS / $opts->{gm} ) * 100,$MuS, ( $MuS / $opts->{mu} ) * 100,));
 
@@ -313,6 +328,7 @@ sub quicktest_triode {    # {{{
 
 
 sub get_results_matrix {
+	my $tracer = shift;
 	my $opts = shift;
 	my $log = shift;
 	my $todo = shift;
@@ -321,7 +337,9 @@ sub get_results_matrix {
 	foreach my $point (@$todo) {
 		printf( "\nMeasuring Vg: %f\tVa: %f\tVs: %f\tVf: %f\n", $point->{vg}, $point->{va}, $point->{vs}, $opts->{vf}->[0] )
 		  if ( $opts->{verbose} );
-		my $measurement = do_measurement(
+		my $measurement = uTracerComs::do_measurement(
+			$tracer,
+			$opts,
 			vg => $point->{vg},
 			va => $point->{va},
 			vs => $point->{vs},
@@ -351,14 +369,14 @@ sub get_results_matrix {
 		);    # }}}
 	}
 
-	end_measurement();
+	uTracerComs::end_measurement( $tracer, $opts );
 
 	printf "Sleeping for $opts->{calm} seconds for uTracer\n";
 	sleep $opts->{calm};
 
 	# 00 - all zeros turn everything off
 	# 40 turn off fil
-	set_filament(0) if ( !$opts->{warm} );
+	uTracerComs::set_filament($tracer,$opts,0) if ( !$opts->{warm} );
 
 	return \@results;
 }
@@ -428,7 +446,7 @@ sub quicktest_pentode {    # {{{
 
 	if ($opts->{debug}) {dump_csv( 'todo.csv', \@todo );}
 
-	my $results = get_results_matrix($opts, $log, \@todo);
+	my $results = get_results_matrix($tracer, $opts, $log, \@todo);
 
 	### Do the calculations now that we have the results
 	if ($opts->{debug}) {dump_csv( 'results.csv', $results )}

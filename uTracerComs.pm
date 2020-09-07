@@ -10,18 +10,19 @@ use Config::General;
 use File::Slurp;
 use Device::SerialPort;
 use uTracerConstants;
+use uTracerMeasure;
 
 our @EXPORT    = qw( 
-		init_utracer
-    warmup_tube
-    end_measurement
-    set_filament
-    ping
-    send_settings
-    do_measurement
-    reset_tracer
-    abort
+    	abort
 		decode_measurement
+    	do_measurement
+		end_measurement
+ 		init_utracer
+    	ping
+    	send_settings
+    	set_filament
+   		reset_tracer
+    	warmup_tube
   );
 
 sub init_utracer {
@@ -35,11 +36,11 @@ sub init_utracer {
 	$tracer->databits(8);
 	$tracer->stopbits(1);
 
-  # wait this long for reads to timeout.  This is in miliseconds.
-  # this is stupid high so that I can simulate the uTracer with another terminal by hand.
-  $tracer->read_const_time(10_000);
+  	# wait this long for reads to timeout.  This is in miliseconds.
+  	# this is stupid high so that I can simulate the uTracer with another terminal by hand.
+ 	$tracer->read_const_time(10_000);
 
-  return $tracer;
+  	return $tracer;
 }
 
  sub warmup_tube {
@@ -70,8 +71,8 @@ sub init_utracer {
 
 sub end_measurement {    # {{{
 	my $tracer = shift;
-  my $opts = shift;
-	my (%args) = @_;
+    my $opts = shift;
+	#my (%args) = @_;
 	my $string = sprintf( "%02X00000000%02X%02X%02X%02X", $CMD_END, 0, 0, 0, 0 );
 	print "> $string\n" if ( $opts->{debug} );
 	$tracer->write($string);
@@ -83,7 +84,7 @@ sub end_measurement {    # {{{
 
 sub set_filament {    # {{{
 	my $tracer = shift;
-  my $opts = shift;
+    my $opts = shift;
 	my ($voltage) = @_;
 	my $string = sprintf( "%02X000000000000%04X", $CMD_FILAMENT, $voltage );
 	print "> $string\n" if ( $opts->{debug} );
@@ -96,7 +97,7 @@ sub set_filament {    # {{{
 
 sub ping {    # {{{
 	my $tracer = shift;
-  my $opts = shift;
+    my $opts = shift;
 	my $string = sprintf( "%02X00000000%02X%02X%02X%02X", $CMD_PING, 0, 0, 0, 0 );
 	print "> $string\n" if ( $opts->{debug} );
 	$tracer->write($string);
@@ -114,9 +115,21 @@ sub ping {    # {{{
 
 sub send_settings {    # {{{
 	my $tracer = shift;
-  my $opts = shift;
-	my (%args) = @_;
-	my $string = sprintf("%02X00000000%02X%02X%02X%02X",$CMD_START,$compliance_to_tracer{ $args{compliance} },$averaging_to_tracer{ $args{averaging} } || 0,$gain_to_tracer{ $args{gain_is} }        || 0,$gain_to_tracer{ $args{gain_ia} }        || 0,);
+    my $opts = shift;
+	#my (%args) = @_;
+	#my $tracer = $args{tracer};
+	#my $opts = $args{opts};
+	#TODO: separate gains for ia and is???
+	my $gain_ia = $opts->{gain};
+    my $gain_is = $opts->{gain};
+	
+	my $string = 
+		sprintf("%02X00000000%02X%02X%02X%02X",$CMD_START,
+			$compliance_to_tracer{ $opts->{compliance} },
+			$averaging_to_tracer{ $opts->{averaging} } 
+				|| 0,$gain_to_tracer{ $gain_is}         
+				|| 0,$gain_to_tracer{ $gain_ia}   
+				|| 0,);
 	print "> $string\n" if ( $opts->{debug} );
 	$tracer->write($string);
 	my ( $bytes, $response ) = $tracer->read(18);
@@ -127,9 +140,15 @@ sub send_settings {    # {{{
 
 sub do_measurement {    # {{{
 	my $tracer = shift;
-  my $opts = shift;
+    my $opts = shift;
 	my (%args) = @_;
-	my $string = sprintf("%02X%04X%04X%04X%04X",$CMD_MEASURE,getVa( $args{va} ),getVs( $args{vs} ),getVg( $args{vg} ),getVf( $args{vf} ),);
+	my $string = sprintf("%02X%04X%04X%04X%04X",
+		$CMD_MEASURE,
+		getVa( $args{va} ),
+		getVs( $args{vs} ),
+		getVg( $args{vg} ),
+		getVf( $args{vf} ),);
+
 	print "> $string\n" if ( $opts->{debug} );
 	$tracer->write($string);
 	my ( $bytes, $response ) = $tracer->read(18);
@@ -137,7 +156,7 @@ sub do_measurement {    # {{{
 	if ( $response ne $string ) { warn "uTracer returned $response, when I expected $string"; }
 	( $bytes, $response ) = $tracer->read(38);
 	print "< $response\n" if ( $opts->{debug} );
-	my $data = decode_measurement($response);
+	my $data = decode_measurement($opts, $response);
 	@{$data}{qw(Va Vs Vg Vf)} = @args{qw(va vs vg vf)};
 	return $data;
 }    # }}}
@@ -151,7 +170,7 @@ sub reset_tracer {
 
 sub abort {
 	my $tracer = shift;
-  my $opts = shift;
+    my $opts = shift;
 	print "Aborting!\n";
 
 	#reset_tracer();

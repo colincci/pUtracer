@@ -1,0 +1,9 @@
+Mod the software to caculate Mu for pentodes.  Remove from the app.ini files.
+Check the entries in the config file and warn if there are unrecognized entries.
+Begin work on a database schema that will support:
+Tube type, brand, Purchase price, date, location, storage location, cross reference
+Autopopulate tube test data in database
+Link tube test curves into database
+
+ 
+

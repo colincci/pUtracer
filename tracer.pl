@@ -16,7 +16,7 @@ use Config::General;
 use File::Slurp;
 use File::Basename;
 use lib dirname(__FILE__);
-#use uTracerConstants;
+use uTracerConstants;
 use uTracerComs;
 use uTracerMeasure;
 use TubeDatabase;
@@ -40,12 +40,25 @@ $ConfigFile = 'app.ini';
 sub get_commandline {
     my $cfg    = Config::General->new("app.ini");
     my %config = $cfg->getall();
-
+    
     my $opts  = $config{options};
+    $opts->{'cal'} = get_cal();
+    
     my $tubes = $config{tubes};
 
-	$Getopt::Long::autoabbrev = 1;
-	$Getopt::Long::bundling   = 1;
+    $opts->{preset} = sub {
+            $_[1]                = lc $_[1];
+            $opts->{preset_name} = $_[1];
+            $_[1]                = "$_[1]-quick" if ( !exists $tubes->{ $_[1] } );
+            if ( exists $tubes->{ $_[1] } ) {
+                map { $opts->{$_} ||= $tubes->{ $_[1] }->{$_} } keys %{ $tubes->{ $_[1] } };
+            } else {
+                die "Don't know tube type $_[1].  Specify vf, vg, va, vs on the command line.";
+            }
+        };
+
+
+	
 	my @usage = (
 		"configfile=s",                         # Path to the config file, defaults to app.ini in the current directory
 		"log=s",                                # Path to the log file
@@ -75,17 +88,9 @@ sub get_commandline {
 
 	GetOptions( $opts, @usage ) || pod2usage(2);
 
-	$opts->{preset} = sub {
-		$_[1]                = lc $_[1];
-		$opts->{preset_name} = $_[1];
-		$_[1]                = "$_[1]-quick" if ( !exists $tubes->{ $_[1] } );
-		if ( exists $tubes->{ $_[1] } ) {
-			map { $opts->{$_} ||= $tubes->{ $_[1] }->{$_} } keys %{ $tubes->{ $_[1] } };
-		} else {
-			die "Don't know tube type $_[1].  Specify vf, vg, va, vs on the command line.";
-		}
-	};
-
+	$Getopt::Long::autoabbrev = 1;
+    $Getopt::Long::bundling   = 1;
+    
 	# Copy in tube name from preset, if not specified on the command line.
 	$opts->{tube} ||= $opts->{preset_name};
 	return $opts;
