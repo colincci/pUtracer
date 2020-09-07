@@ -9,111 +9,39 @@ use constant { TRUE => 1, FALSE => 0 };
 
 
 use Exporter qw( import );
-use uTracerConstants;
+#use uTracerConstants;
+#use uTracerUtil;
 use uTracerComs;
 use TubeDatabase;
 
 
-
 our @EXPORT    = qw( 
     do_curve 
-	getVf
-	getVa
-	getVs
-	getVg
 	quicktest_triode
 	quicktest_pentode 
   );
   
-sub getVa {    # {{{ # getVa is done
-	my ($voltage) = @_;
-
-	die "Voltage above 400v is not supported" if ( $voltage > 400 );
-	die "Voltage below 2v is not supported"   if ( $voltage < 2 );
-
-	# voltage is in reference to supply voltage, adjust
-	$voltage += $VsupSystem;
-
-	my $ret = $voltage * $ENCODE_TRACER * $ENCODE_SCALE_VA * $cal->{CalVar1};
-
-	if ( $ret > 1023 ) {
-		warn "Va voltage too high, clamping";
-		$ret = 1023;
+sub exceedsMaxV {
+	my $str = shift;
+	my $maxv = shift;
+	my $arr_ptr = shift;
+	foreach my $val (@$arr_ptr) {
+		if ($val > $maxv) {
+			die "$str > $maxv are not allowed.  Try reducing voltage, or offset percentage";
+		}
 	}
-	return $ret;
+}
 
-}    # }}}
-
-
-sub getVs {    # {{{ # getVs is done
-	my ($voltage) = @_;
-
-	die "Voltage above 400v is not supported" if ( $voltage > 400 );
-	die "Voltage below 2v is not supported"   if ( $voltage < 2 );
-
-	# voltage is in reference to supply voltage, adjust
-	$voltage += $VsupSystem;
-	my $ret = $voltage * $ENCODE_TRACER * $ENCODE_SCALE_VS * $cal->{CalVar2};
-	if ( $ret > 1023 ) {
-		warn "Vs voltage too high, clamping";
-		$ret = 1023;
+sub exceedsMinV {
+	my $str = shift;
+	my $minv = shift;
+	my $arr_ptr = shift;
+	foreach my $val (@$arr_ptr) {
+		if ($val < $minv) {
+			die "$str < $minv are not allowed.  Try increasing voltage, or decreasing offset percentage";
+		}
 	}
-	return $ret;
-}    # }}}
-
-# also PWM, mapping a 0 - 5V to 0 - -50V, referenced from the system supply
-sub getVg {    # {{{ # getVg is done
-	my ($voltage) = @_;
-
-	my $Vsat = 2 * ( $cal->{CalVar9} - 1 );
-	my ( $X1, $Y1, $X2, $Y2 );
-	if ( abs($voltage) <= 4 ) {
-		$X1 = $Vsat;
-		$Y1 = 0;
-		$X2 = 4;
-		$Y2 = $ENCODE_SCALE_VG * $cal->{CalVar8} * $cal->{CalVar6} * 4;
-	} else {
-		$X1 = 4;
-		$Y1 = $ENCODE_SCALE_VG * $cal->{CalVar8} * $cal->{CalVar6} * 4;
-		$X2 = 40;
-		$Y2 = $ENCODE_SCALE_VG * $cal->{CalVar6} * 40;
-	}
-
-	my $AA  = ( $Y2 - $Y1 ) / ( $X2 - $X1 );
-	my $BB  = $Y1 - $AA * $X1;
-	my $ret = $AA * abs($voltage) + $BB;
-
-	if ( $voltage > 0 ) {
-		die "Positive grid voltages, from the grid terminal are not supported.  Cheat with screen/anode terminal.";
-	}
-
-	if ( $ret > 1023 ) {
-		warn "Grid voltage too high, clamping to max";
-		$ret = 1023;
-	}
-
-	if ( $ret < 0 ) {
-		warn "Grid voltage too low, clamping to min";
-		$ret = 0;
-	}
-
-	return $ret;
-}    # }}}
-
-
-sub getVf {    # {{{ # getVf is done
-	my ($voltage) = @_;
-	my $ret = 1024 * ( $voltage**2 ) / ( $VsupSystem**2 ) * $cal->{CalVar5};
-	if ( $ret > 1023 ) {
-		warn sprintf( "Requested filament voltage %f > 100%% PWM duty cycle, clamping to 100%%, %f.", $voltage, $VsupSystem );
-		$ret = 1023;
-	} elsif ( $ret < 0 ) {
-		warn sprintf( "Requested filament voltage %f < 0%% PWM duty cycle, clamping to 0%%.", $voltage );
-		$ret = 0;
-	}
-	return $ret;
-}    # }}}
-
+}
 
 sub init_voltage_ranges {
 	my $opts = shift;
@@ -143,29 +71,6 @@ sub init_voltage_ranges {
 		
 	return \@va, \@vs, \@vg;
 }
-
-sub exceedsMaxV {
-	my $str = shift;
-	my $maxv = shift;
-	my $arr_ptr = shift;
-	foreach my $val (@$arr_ptr) {
-		if ($val > $maxv) {
-			die "$str > $maxv are not allowed.  Try reducing voltage, or offset percentage";
-		}
-	}
-}
-
-sub exceedsMinV {
-	my $str = shift;
-	my $minv = shift;
-	my $arr_ptr = shift;
-	foreach my $val (@$arr_ptr) {
-		if ($val < $minv) {
-			die "$str < $minv are not allowed.  Try increasing voltage, or decreasing offset percentage";
-		}
-	}
-}
-
 sub quicktest_triode {    # {{{
 	my $tracer = shift;
 	my $opts = shift;
@@ -176,7 +81,7 @@ sub quicktest_triode {    # {{{
 	$log->printf( "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",qw(Name Tube Point Vpsu Vmin Vg Va Va_Meas Ia Ia_Raw Ia_Gain Vs Vs_Meas Is Is_Raw Is_Gain Vf) );
 
 	# 00 - send settings w/ compliance, etc.
-	uTracerComs::send_settings($tracer, $opts);
+	send_settings($tracer, $opts);
 	#send_settings(
 	#	tracer 	   => $tracer,
 	#	opts       => $opts,
@@ -187,11 +92,11 @@ sub quicktest_triode {    # {{{
     #	);
 
 	# 50 - read out AD
-	my $data = uTracerComs::ping($tracer,$opts);
+	my $data = ping($tracer,$opts);
 
 	# set filament
 	# 40 - set fil voltage (repeated 10x) +=10% of voltage, once a second
-	uTracerComs::warmup_tube($tracer,$opts);
+	warmup_tube($tracer,$opts);
 
 	# do the five measurements for a triode http://dos4ever.com/uTracerlog/tubetester2.html#quicktest
 	# theory explained here https://wtfamps.wordpress.com/mugmrp/
@@ -337,7 +242,7 @@ sub get_results_matrix {
 	foreach my $point (@$todo) {
 		printf( "\nMeasuring Vg: %f\tVa: %f\tVs: %f\tVf: %f\n", $point->{vg}, $point->{va}, $point->{vs}, $opts->{vf}->[0] )
 		  if ( $opts->{verbose} );
-		my $measurement = uTracerComs::do_measurement(
+		my $measurement = do_measurement(
 			$tracer,
 			$opts,
 			vg => $point->{vg},
@@ -369,14 +274,14 @@ sub get_results_matrix {
 		);    # }}}
 	}
 
-	uTracerComs::end_measurement( $tracer, $opts );
+	end_measurement( $tracer, $opts );
 
 	printf "Sleeping for $opts->{calm} seconds for uTracer\n";
 	sleep $opts->{calm};
 
 	# 00 - all zeros turn everything off
 	# 40 turn off fil
-	uTracerComs::set_filament($tracer,$opts,0) if ( !$opts->{warm} );
+	set_filament($tracer,$opts,0) if ( !$opts->{warm} );
 
 	return \@results;
 }

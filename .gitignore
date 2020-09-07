@@ -6,4 +6,5 @@ pentodes
 *.pdf
 *.orig
 *.sq3
+.vstags
 notes.txt
